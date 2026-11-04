@@ -68,26 +68,27 @@ final class ImageFiles {
         }
         if (bitmap == null) throw new IOException("not a decodable image");
 
-        int degrees = exifRotation(source);
-        if (degrees == 0) return bitmap;
+        // Turned and mirrored like the EXIF orientation says, so text comes out readable.
+        int orientation = exifOrientation(source);
+        int degrees = ExifOrientation.degrees(orientation);
+        boolean mirrored = ExifOrientation.isMirrored(orientation);
+        if (degrees == 0 && !mirrored) return bitmap;
         Matrix matrix = new Matrix();
         matrix.postRotate(degrees);
-        Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-        if (rotated != bitmap) bitmap.recycle();
-        return rotated;
+        if (mirrored) matrix.postScale(-1, 1);
+        Bitmap upright = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+        if (upright != bitmap) bitmap.recycle();
+        return upright;
     }
 
-    /** Clockwise rotation stored in the image's EXIF data, 0 when there is none. */
-    private static int exifRotation(Source source) {
+    /** Orientation stored in the image's EXIF data, normal when there is none. */
+    private static int exifOrientation(Source source) {
         try (InputStream in = source.open()) {
-            int orientation = new ExifInterface(in).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
-            if (orientation == ExifInterface.ORIENTATION_ROTATE_90) return 90;
-            if (orientation == ExifInterface.ORIENTATION_ROTATE_180) return 180;
-            if (orientation == ExifInterface.ORIENTATION_ROTATE_270) return 270;
+            return new ExifInterface(in).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
         } catch (IOException ignored) {
             // No EXIF data: keep the image as decoded.
+            return ExifInterface.ORIENTATION_NORMAL;
         }
-        return 0;
     }
 
     /** Folder in the app's cache with the photos the plugin saved. */

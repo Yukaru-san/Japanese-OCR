@@ -15,6 +15,12 @@ export interface DownloadOptions {
   /** Bytes loaded so far of all files together (stored ones count as loaded). */
   onProgress?: (loadedBytes: number, totalBytes: number) => void;
   signal?: AbortSignal;
+  /**
+   * Every file of the current version that stays stored; the rest of the folder counts as an older
+   * version and is removed. Defaults to the downloaded files, so a call for one more file passes the
+   * whole set.
+   */
+  keep?: ModelFile[];
 }
 
 /** Cache Storage name; one cache for all versions, files of other versions are removed on download. */
@@ -63,7 +69,7 @@ export async function downloadFiles(
 
   // Files of older versions (other URLs) are no longer needed
   if (cache) {
-    const current = new Set(files.map((file) => file.url.href));
+    const current = new Set([...files, ...(options.keep ?? [])].map((file) => file.url.href));
     const keys = await cache.keys();
     await Promise.all(
       keys

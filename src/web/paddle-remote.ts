@@ -31,22 +31,30 @@ export type WorkerResponse =
  * The engine in a Web Worker (`paddle-worker.ts`), behind the same interface as on the page.
  * Rejects when the worker can't start or can't load the models; the caller then loads them on the
  * page instead. A cancelled download (`signal`) rejects with an `AbortError`.
+ * Once the worker failed, the engine rejects every call right away and `onLost` tells the caller,
+ * which can start a new one.
  */
 export function connectPaddleWorker(
   worker: Worker,
   gpu: boolean,
   options: DownloadOptions = {},
+  onLost?: () => void,
 ): Promise<PaddleEngine> {
   const pending = new Map<number, { resolve: (result: never) => void; reject: (e: Error) => void }>();
   let nextId = 0;
+  // Set once the worker is gone; nothing can answer anymore
+  let lost: Error | null = null;
 
   return new Promise((resolve, reject) => {
     const fail = (message: string, aborted = false) => {
+      if (lost) return;
       worker.terminate();
       const error = aborted ? new DOMException(message, 'AbortError') : new Error(message);
+      lost = error;
       pending.forEach((call) => call.reject(error));
       pending.clear();
       reject(error);
+      onLost?.();
     };
 
     worker.addEventListener('error', (event) => fail(event.message || 'The OCR worker failed.'));
@@ -70,6 +78,7 @@ export function connectPaddleWorker(
   function remoteEngine(backend: PaddleBackend): PaddleEngine {
     const run = <T>(method: 'recognize' | 'recognizeLine', image: RgbaImage, options?: DetectOptions | LineOptions) =>
       new Promise<T>((resolve, reject) => {
+        if (lost) return reject(lost);
         const id = nextId++;
         pending.set(id, { resolve: resolve as (result: never) => void, reject });
         // A copy moves to the worker, the caller keeps its pixels

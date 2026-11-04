@@ -139,7 +139,11 @@ async function createEngine(gpu: boolean, download: DownloadOptions): Promise<Pa
     } catch (e) {
       // Drivers and browsers differ a lot: anything that fails on the GPU runs on the CPU instead.
       console.warn('Japanese OCR: WebGPU failed, using WebAssembly.', e);
-      const [cpuWasm] = await downloadFiles([wasmFile('wasm')], download);
+      // The models and the GPU runtime stay stored: the next visit may run on the GPU again
+      const [cpuWasm] = await downloadFiles([wasmFile('wasm')], {
+        ...download,
+        keep: [...engineFiles('webgpu'), wasmFile('wasm')],
+      });
       return createSessions('wasm', det, rec, await gunzip(cpuWasm), chars);
     }
   }

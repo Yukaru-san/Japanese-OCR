@@ -56,10 +56,19 @@ export function createJapaneseOcr(loaders: EngineLoaders = {}): JapaneseOcrPlugi
   // No web implementation is registered: the web engine below is used directly instead.
   const native = nativeAvailable ? registerPlugin<JapaneseOcrEngine>('JapaneseOcr') : null;
   let web: Promise<JapaneseOcrWeb> | null = null;
-  const loadWeb = () =>
-    (web ??= loaders.web
-      ? loaders.web()
-      : Promise.reject(new CapacitorException(NO_WEB_ENGINE, 'UNAVAILABLE' as ExceptionCode)));
+  // A failed load (e.g. no network for the chunk) isn't kept, the next call tries again
+  const loadWeb = () => {
+    if (!web) {
+      const loading = loaders.web
+        ? loaders.web()
+        : Promise.reject(new CapacitorException(NO_WEB_ENGINE, 'UNAVAILABLE' as ExceptionCode));
+      web = loading;
+      loading.catch(() => {
+        if (web === loading) web = null;
+      });
+    }
+    return web;
+  };
 
   let choice: EngineOptions['engine'] = 'auto';
   const activeName = (): OcrEngineName => (choice === 'web' || !native ? 'web' : 'native');

@@ -47,13 +47,16 @@ function coded(e: unknown, code: JapaneseOcrErrorCode, fallback: string): Capaci
   return fail(code, messageOf(e, fallback));
 }
 
-/** Loads the models in the configured worker, or on the page when there is none or it fails. */
-async function loadEngine(download: DownloadOptions): Promise<PaddleEngine> {
+/**
+ * Loads the models in the configured worker, or on the page when there is none or it fails.
+ * `onLost` is called when a worker that was running fails later.
+ */
+async function loadEngine(download: DownloadOptions, onLost: () => void): Promise<PaddleEngine> {
   const gpu = webEngineOptions.gpu !== false;
   if (webEngineOptions.worker) {
     try {
       const { connectPaddleWorker } = await import('./web/paddle-remote');
-      return await connectPaddleWorker(webEngineOptions.worker(), gpu, download);
+      return await connectPaddleWorker(webEngineOptions.worker(), gpu, download, onLost);
     } catch (e) {
       if (isAbort(e)) throw e;
       console.warn('Japanese OCR: the worker failed, the models run on the page.', e);
@@ -107,9 +110,15 @@ export class JapaneseOcrWeb extends WebPlugin implements JapaneseOcrEngine {
       this.failure = null;
       const onProgress = (loadedBytes: number, totalBytes: number) =>
         this.notifyListeners('modelDownloadProgress', { loadedBytes, totalBytes });
-      const engine = (this.engine = reason
+      // A worker that fails later is dropped, the next call starts a new one
+      const onLost = () => {
+        if (this.engine !== engine) return;
+        this.engine = null;
+        this.ready = false;
+      };
+      const engine: Promise<PaddleEngine> = (this.engine = reason
         ? Promise.reject(fail('UNAVAILABLE', reason))
-        : loadEngine({ onProgress, signal }).then(async (engine) => {
+        : loadEngine({ onProgress, signal }, onLost).then(async (engine) => {
             // Warm-up, like the native engine, so the first real image isn't slower.
             await engine.recognize({ data: new Uint8ClampedArray(64 * 64 * 4).fill(255), width: 64, height: 64 });
             this.ready = true;
