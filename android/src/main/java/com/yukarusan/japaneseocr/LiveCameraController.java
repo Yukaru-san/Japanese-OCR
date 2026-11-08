@@ -296,19 +296,16 @@ class LiveCameraController {
                 public void onCaptureSuccess(@NonNull ImageProxy image) {
                     Bitmap bitmap;
                     OutputTransform source = safeSource(image);
-                    int rotation;
                     try {
-                        rotation = image.getImageInfo().getRotationDegrees();
-                        bitmap = image.toBitmap();
+                        bitmap = uprightBitmap(image);
+                    } catch (RuntimeException | OutOfMemoryError e) {
+                        // A photo that can't be converted (broken frame, not enough memory) ends the
+                        // capture with an error instead of leaving it open; the camera goes on.
+                        activity.runOnUiThread(LiveCameraController.this::resume);
+                        callback.onError("Converting the photo failed: " + e);
+                        return;
                     } finally {
                         image.close();
-                    }
-                    if (rotation != 0) {
-                        Matrix matrix = new Matrix();
-                        matrix.postRotate(rotation);
-                        Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-                        if (rotated != bitmap) bitmap.recycle();
-                        bitmap = rotated;
                     }
                     callback.onCaptured(bitmap, ViewMapper.create(source, target));
                 }
@@ -325,6 +322,24 @@ class LiveCameraController {
     void resume() {
         frozen = false;
         lastFrameAt = 0;
+    }
+
+    /** The photo as bitmap, turned upright; the first bitmap is recycled when a turned copy replaces it. */
+    private static Bitmap uprightBitmap(ImageProxy image) {
+        int rotation = image.getImageInfo().getRotationDegrees();
+        Bitmap bitmap = image.toBitmap();
+        if (rotation == 0) return bitmap;
+
+        Matrix matrix = new Matrix();
+        matrix.postRotate(rotation);
+        try {
+            Bitmap rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+            if (rotated != bitmap) bitmap.recycle();
+            return rotated;
+        } catch (RuntimeException | OutOfMemoryError e) {
+            bitmap.recycle();
+            throw e;
+        }
     }
 
     @Nullable
